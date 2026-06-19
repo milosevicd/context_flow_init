@@ -5,15 +5,9 @@
   "permissions": {
     "allow": [
       "Bash",
-      "Skill(canon)",
-      "Skill(canon:*)",
-      "Skill(instructions-update)",
-      "Skill(instructions-update:*)",
-      "Skill(challenge)",
-      "Skill(challenge:*)",
+      "Skill(*)",
       "mcp__google-drive__*",
-      "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebSearch"
     ],
     "deny": [
       "Bash(rm -rf *)",
