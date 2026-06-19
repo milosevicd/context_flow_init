@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "google-drive": {
+      "command": "npx",
+      "args": ["-y", "@a-bonus/google-docs-mcp"],
+      "env": {
+        "SERVICE_ACCOUNT_PATH": "${GOOGLE_SVC_ACCT_PK_PATH}",
+        "MCP_TOOL_GROUPS": "drive,utils,docs,sheets"
+      }
+    }
+  }
+}
