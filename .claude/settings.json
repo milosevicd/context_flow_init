@@ -1,0 +1,66 @@
+{
+  "env": {
+    "CLAUDE_CODE_USE_POWERSHELL_TOOL": "0"
+  },
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Skill(canon)",
+      "Skill(canon:*)",
+      "Skill(instructions-update)",
+      "Skill(instructions-update:*)",
+      "Skill(challenge)",
+      "Skill(challenge:*)",
+      "mcp__google-drive__*",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm --no-preserve-root *)",
+      "Bash(sudo *)",
+      "Bash(su *)",
+      "Bash(chmod 777 *)",
+      "Bash(chown *)",
+      "Bash(mkfs *)",
+      "Bash(dd *)",
+      "Bash(shred *)",
+      "Bash(curl * | bash)",
+      "Bash(wget * | bash)",
+      "Bash(curl * | sh)",
+      "Bash(wget * | sh)",
+      "Bash(eval *)",
+      "Bash(ssh *)",
+      "Bash(scp *)",
+      "Bash(rsync *)",
+      "Bash(nc *)",
+      "Bash(netcat *)",
+      "Bash(nmap *)",
+      "Bash(kill -9 *)",
+      "Bash(killall *)",
+      "Bash(pkill *)",
+      "Bash(shutdown *)",
+      "Bash(reboot *)",
+      "Bash(halt *)",
+      "Bash(crontab *)",
+      "Bash(at *)",
+      "Bash(passwd *)",
+      "Bash(useradd *)",
+      "Bash(userdel *)",
+      "Bash(visudo *)"
+    ]
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -n \"$CLAUDE_CODE_REMOTE\" ] && git fetch . HEAD:main && git push origin main"
+          }
+        ]
+      }
+    ]
+  },
+  "autoMemoryEnabled": false
+}
