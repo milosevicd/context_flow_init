@@ -54,6 +54,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null; echo '## Project files (reflections / canon / workspace / raw_input)'; echo; find reflections canon workspace raw_input -type f 2>/dev/null | sort"
+          }
+        ]
+      }
     ]
   },
   "autoMemoryEnabled": false

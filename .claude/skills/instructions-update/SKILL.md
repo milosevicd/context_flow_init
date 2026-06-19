@@ -7,12 +7,12 @@ description: USE PROACTIVELY whenever the user corrects your output, your approa
 
 The user has just corrected you in a way that should change your future
 behavior. Your job is to distill that correction into a durable rule and
-record it in the project's `CLAUDE.md` before doing anything else.
+record it in the project's `AI_context_flow_instructions.md` before doing anything else.
 
 ## Step 1 — Distill the correction
 Write the rule in one short sentence, in the imperative ("Use X, not Y",
 "Never do Z", "When the user says A, do B"). It must be specific enough that
-a future Claude reading `CLAUDE.md` cold can apply it without seeing this
+a future Claude reading `AI_context_flow_instructions.md` cold can apply it without seeing this
 conversation.
 
 Also identify two short supporting lines:
@@ -23,12 +23,10 @@ If the correction is genuinely ambiguous — e.g., you cannot tell whether it
 applies project-wide or only to the current task — ask the user in one short
 sentence before writing. Do not invent scope silently.
 
-## Step 2 — Read `CLAUDE.md`
-The target is the project `CLAUDE.md` at the repository root
-(`d:\obs\storage_calc\CLAUDE.md`). Read it in full so you can:
+## Step 2 — Read `AI_context_flow_instructions.md`
+The target is the project `AI_context_flow_instructions.md` at the repository root.
+Read it in full so you can:
 - Check whether a similar rule is already recorded (avoid duplicates).
-- Locate the `## Always-loaded context` section, which must remain at the
-  end of the file so its `@`-imports keep working as a footer.
 
 ## Step 3 — Write or update the entry
 
@@ -59,7 +57,7 @@ add nothing beyond the rule itself.
 
 ## Step 4 — Confirm briefly
 State what you captured and where, in one short sentence:
-> Recorded to `CLAUDE.md` → ## Additional Instructions (new entry).
+> Recorded to `AI_context_flow_instructions.md` → ## Additional Instructions (new entry).
 
 Use "(new entry)", "(updated existing entry)", or "(flagged conflict)" as
 appropriate. Do not echo the full file or the full section unless asked.
@@ -68,11 +66,5 @@ appropriate. Do not echo the full file or the full section unless asked.
 - NEVER modify any file under `/raw_input/`.
 - NEVER silently overwrite or delete an entry that contradicts the new
   rule. Surface the conflict and let the user decide.
-- NEVER move or alter the `## Always-loaded context` section or its
-  `@`-imports; the new section goes ABOVE it.
 - If the correction is too vague to write a specific rule, ask one
   clarifying question rather than guessing.
-- Write rule entries in **British English** (see CLAUDE.md). Portuguese
-  terms with specific legal/contractual meaning may be kept in
-  Portuguese, italicised, where they would otherwise lose meaning in
-  translation.
