@@ -1,6 +1,8 @@
 This is a **thinking space, not a build space** — research, synthesis, decisions,
 drafts, and communications. There is no application code here.
 
+# Project
+
 @./PROJECT.md
 
 ## The four tiers
@@ -99,13 +101,18 @@ to carry the file's meaning on its own.
 When a topic comes up, orient from the project tree in three steps, cheap to
 expensive:
 
-1. **Tree** — filenames are titles; the path tells you the tier.
-2. **Header** — read a candidate file's frontmatter (up to the closing `---`) to
+1. **Tree** — filenames are titles; the path tells you the tier. Whole file tree is available to you above, no need to list it yourself.
+2. **Header** — read ONLY a candidate file's frontmatter (up to the closing `---`) to
    decide whether the body is worth opening.
 3. **Body** — read fully only for files that survive the header check.
 
 - **Why:** the tree plus per-file headers already form a complete, always-current
-  index.
+  index. The principle alone ("read only the frontmatter") keeps lapsing because at
+  the moment of calling `Read` the path of least resistance is the unbounded default;
+  naming the exact tool action (`limit`) and labelling the bare read a *defect*
+  removes the wiggle room.
+- **Self-check before every `Read` of a tiered file:** "Have I header-checked this,
+  or am I about to bare-read it on first contact?" If the latter, add the `limit`.
 - **How to apply:** read headers to triage, bodies only for the relevant ones.
   Skip files whose status is `superseded`/`archived` unless you're
   auditing history. When the task is high-stakes or a header is ambiguous, err
@@ -211,5 +218,7 @@ content in them has become completely irrelevant (i.e. they don't get archived).
     the same advice.
 
 ---
+
+Including `reflections\patterns.md`:
 
 @./reflections/patterns.md

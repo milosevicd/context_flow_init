@@ -1,22 +1,25 @@
 #!/usr/bin/env python3
 """
 gdrive.py — create Google Docs/Sheets and upload files to Google Drive
-as a *real user* (OAuth), complementing the service-account MCP server.
+using a *domain-wide-delegated* (DWD) service account that impersonates a
+real user.
 
 Why this exists:
-  The project's google-drive MCP server authenticates with a service
-  account. Service accounts have no personal Drive storage quota, so
-  files.create fails with "storageQuotaExceeded" in a normal (My Drive)
-  folder. This helper authenticates as a real user (OAuth client id /
-  secret + refresh token), so it CAN create files, and always shares
-  each new file with the service account so the MCP can then edit it.
+  The project's google-drive MCP server can edit existing files but does
+  not create them. This helper creates them. It authenticates with a
+  service account that has domain-wide delegation enabled and impersonates
+  a real user (GOOGLE_USER_EMAIL). Because the file is created *as that
+  user* — who has normal Drive storage quota — creation succeeds and the
+  file lands in that user's own Drive. No file-sharing step is needed.
 
-This script does NOT mint credentials. Acquiring a refresh token is a
-one-time human setup step done outside the skill. If the
-refresh token is missing the script stops and tells the user — it never
-launches a browser or runs an auth flow.
+This script does NOT run a browser/auth flow and never mints or stores
+long-lived user credentials. It signs a short-lived JWT with the service
+account's private key and exchanges it for an access token. If the key or
+the impersonation target is missing it stops and tells the user.
 
-Pure Python standard library only — no pip installs required.
+Pure Python standard library only — no pip installs required. (RS256 JWT
+signing is implemented directly: a tiny DER parser extracts the RSA key
+and pow() does the modular exponentiation.)
 
 Subcommands:
   create-doc    Create an empty Google Doc in a folder.
@@ -25,22 +28,24 @@ Subcommands:
                 optionally converting it to a Google Doc/Sheet.
 
 Configuration is entirely via environment variables:
-  GOOGLE_OAUTH_CLIENT_ID       OAuth client id (real-user credentials).
-  GOOGLE_OAUTH_CLIENT_SECRET   OAuth client secret.
-  GOOGLE_OAUTH_REFRESH_TOKEN   OAuth refresh token (obtained once, externally).
-  GOOGLE_SVC_ACCT_PK_PATH      Path to the service-account JSON (the same
-                               env var the MCP uses). Every new file is
-                               shared with its client_email so the MCP can
-                               edit it immediately.
+  GOOGLE_DWD_SVC_ACCT_PK_PATH  Path to the service-account JSON key. The
+                               service account must have domain-wide
+                               delegation enabled and be authorized for the
+                               Drive scope.
+  GOOGLE_USER_EMAIL            The user to impersonate. Files are created in
+                               this user's Drive.
 
 All commands print a single JSON object on stdout on success.
 """
 
 import argparse
+import base64
+import hashlib
 import json
 import mimetypes
 import os
 import sys
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -52,10 +57,27 @@ DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
 DOC_MIME = "application/vnd.google-apps.document"
 SHEET_MIME = "application/vnd.google-apps.spreadsheet"
 
+SCOPE = "https://www.googleapis.com/auth/drive"
+
 
 def die(msg):
     print(json.dumps({"ok": False, "error": str(msg)}), file=sys.stdout)
     sys.exit(1)
+
+
+def validate_folder(folder):
+    """Reject empty folders and the Drive 'root' alias.
+
+    The Drive API treats 'root' as a special alias for the user's My Drive
+    root. Creating there clutters the top level and is hard to find/clean up,
+    so this skill forbids it: a real folder ID must always be supplied.
+    """
+    if not folder or not folder.strip():
+        die("A destination folder ID is required.")
+    if folder.strip().lower() == "root":
+        die("Refusing to create in the Drive root: 'root' is the special "
+            "My Drive alias and is not allowed. Pass a real folder ID "
+            "(the token in a folder URL: .../folders/<FOLDER_ID>).")
 
 
 def http_json(method, url, token=None, headers=None, data=None):
@@ -77,67 +99,147 @@ def http_json(method, url, token=None, headers=None, data=None):
         die("Network error on %s %s: %s" % (method, url, e.reason))
 
 
+# --------------------------------------------------------------- RS256 / JWT
+
+def _b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _read_len(der, i):
+    first = der[i]
+    i += 1
+    if first < 0x80:
+        return first, i
+    num = first & 0x7F
+    length = int.from_bytes(der[i:i + num], "big")
+    return length, i + num
+
+
+def _read_tlv(der, i):
+    """Return (tag, value_bytes, next_index) for one DER TLV element."""
+    tag = der[i]
+    i += 1
+    length, i = _read_len(der, i)
+    return tag, der[i:i + length], i + length
+
+
+def _read_int(der, i):
+    tag, value, i = _read_tlv(der, i)
+    if tag != 0x02:
+        die("Malformed private key: expected INTEGER in DER.")
+    return int.from_bytes(value, "big"), i
+
+
+def _parse_rsa_private_key(pem):
+    """Extract (n, e, d) from a PEM RSA private key (PKCS#8 or PKCS#1)."""
+    is_pkcs1 = "BEGIN RSA PRIVATE KEY" in pem
+    b64 = "".join(line.strip() for line in pem.strip().splitlines()
+                  if not line.startswith("-----"))
+    der = base64.b64decode(b64)
+
+    if is_pkcs1:
+        rsa_der = der
+    else:
+        # PKCS#8 PrivateKeyInfo SEQUENCE -> unwrap to inner RSAPrivateKey.
+        _, info, _ = _read_tlv(der, 0)          # outer SEQUENCE contents
+        i = 0
+        _, i = _read_int(info, i)               # version
+        _, _, i = _read_tlv(info, i)            # privateKeyAlgorithm SEQUENCE
+        _, rsa_der, _ = _read_tlv(info, i)      # privateKey OCTET STRING body
+
+    _, seq, _ = _read_tlv(rsa_der, 0)           # RSAPrivateKey SEQUENCE
+    j = 0
+    _, j = _read_int(seq, j)                    # version
+    n, j = _read_int(seq, j)                    # modulus
+    e, j = _read_int(seq, j)                    # publicExponent
+    d, j = _read_int(seq, j)                    # privateExponent
+    return n, e, d
+
+
+# DigestInfo prefix for SHA-256 (RFC 8017).
+_SHA256_PREFIX = bytes.fromhex("3031300d060960864801650304020105000420")
+
+
+def _rsa_sign_sha256(message, n, d):
+    """RSASSA-PKCS1-v1_5 signature over SHA-256(message)."""
+    k = (n.bit_length() + 7) // 8
+    t = _SHA256_PREFIX + hashlib.sha256(message).digest()
+    ps_len = k - len(t) - 3
+    if ps_len < 8:
+        die("RSA key is too small to sign.")
+    em = b"\x00\x01" + b"\xff" * ps_len + b"\x00" + t
+    sig_int = pow(int.from_bytes(em, "big"), d, n)
+    return sig_int.to_bytes(k, "big")
+
+
+def _signed_jwt(sa, user_email):
+    now = int(time.time())
+    header = {"alg": "RS256", "typ": "JWT"}
+    claims = {
+        "iss": sa["client_email"],
+        "sub": user_email,          # impersonation target (DWD)
+        "scope": SCOPE,
+        "aud": TOKEN_URI,
+        "iat": now,
+        "exp": now + 3600,
+    }
+    n, _e, d = _parse_rsa_private_key(sa["private_key"])
+    signing_input = (
+        _b64url(json.dumps(header, separators=(",", ":")).encode())
+        + "."
+        + _b64url(json.dumps(claims, separators=(",", ":")).encode())
+    )
+    sig = _rsa_sign_sha256(signing_input.encode("ascii"), n, d)
+    return signing_input + "." + _b64url(sig)
+
+
 # ---------------------------------------------------------------- credentials
 
-def access_token():
-    """Return a fresh access token by exchanging the refresh token.
+def _load_sa():
+    sa_path = os.environ.get("GOOGLE_DWD_SVC_ACCT_PK_PATH")
+    if not sa_path:
+        die("GOOGLE_DWD_SVC_ACCT_PK_PATH is not set — point it at the "
+            "domain-wide-delegated service-account JSON key.")
+    if not os.path.exists(sa_path):
+        die("GOOGLE_DWD_SVC_ACCT_PK_PATH points to a missing file: %s" % sa_path)
+    try:
+        with open(sa_path, "r", encoding="utf-8") as f:
+            sa = json.load(f)
+    except Exception as e:
+        die("Could not read service account JSON at %s: %s" % (sa_path, e))
+    if not sa.get("client_email") or not sa.get("private_key"):
+        die("Service account JSON at %s is missing client_email/private_key."
+            % sa_path)
+    return sa
 
-    All credentials come from the environment. This script never mints a
-    refresh token; if one is missing it stops and tells the user.
+
+def access_token():
+    """Return a fresh access token via the JWT-bearer (DWD) grant.
+
+    Signs a short-lived assertion with the service account key and exchanges
+    it for a token scoped to the impersonated user. Never runs an auth flow.
     """
-    cid = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
-    secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-    if not cid or not secret:
-        die("Missing client id/secret. Set GOOGLE_OAUTH_CLIENT_ID and "
-            "GOOGLE_OAUTH_CLIENT_SECRET.")
-    refresh = os.environ.get("GOOGLE_OAUTH_REFRESH_TOKEN")
-    if not refresh:
-        die("No refresh token. Obtain one once and set "
-            "GOOGLE_OAUTH_REFRESH_TOKEN. This skill does not run an auth flow.")
+    sa = _load_sa()
+    user_email = os.environ.get("GOOGLE_USER_EMAIL")
+    if not user_email:
+        die("GOOGLE_USER_EMAIL is not set — set it to the user the service "
+            "account should impersonate (domain-wide delegation).")
+    assertion = _signed_jwt(sa, user_email)
     data = urllib.parse.urlencode({
-        "client_id": cid,
-        "client_secret": secret,
-        "refresh_token": refresh,
-        "grant_type": "refresh_token",
+        "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        "assertion": assertion,
     }).encode()
     resp = http_json("POST", TOKEN_URI, headers={
         "Content-Type": "application/x-www-form-urlencoded"}, data=data)
+    if "access_token" not in resp:
+        die("Token endpoint returned no access_token: %s" % json.dumps(resp))
     return resp["access_token"]
-
-
-# ----------------------------------------------------------------- sharing
-
-def resolve_sa_email():
-    """Read the service account's client_email from GOOGLE_SVC_ACCT_PK_PATH."""
-    sa_path = os.environ.get("GOOGLE_SVC_ACCT_PK_PATH")
-    if not sa_path:
-        die("GOOGLE_SVC_ACCT_PK_PATH is not set — cannot find the service "
-            "account to share with.")
-    if not os.path.exists(sa_path):
-        die("GOOGLE_SVC_ACCT_PK_PATH points to a missing file: %s" % sa_path)
-    try:
-        with open(sa_path, "r", encoding="utf-8") as f:
-            email = json.load(f).get("client_email")
-    except Exception as e:
-        die("Could not read service account JSON at %s: %s" % (sa_path, e))
-    if not email:
-        die("No client_email in service account JSON at %s." % sa_path)
-    return email
-
-
-def share_with_sa(token, file_id):
-    email = resolve_sa_email()
-    body = json.dumps({"type": "user", "role": "writer", "emailAddress": email}).encode()
-    url = ("%s/%s/permissions?sendNotificationEmail=false&supportsAllDrives=true"
-           % (DRIVE_FILES, file_id))
-    http_json("POST", url, token=token, headers={
-        "Content-Type": "application/json"}, data=body)
-    return email
 
 
 # ------------------------------------------------------------------ create
 
 def create_native(args, mime, kind):
+    validate_folder(args.folder)
     token = access_token()
     body = json.dumps({
         "name": args.name,
@@ -149,8 +251,7 @@ def create_native(args, mime, kind):
         "Content-Type": "application/json"}, data=body)
     out = {"ok": True, "action": "create-%s" % kind,
            "id": resp.get("id"), "name": resp.get("name"),
-           "webViewLink": resp.get("webViewLink"),
-           "sharedWith": share_with_sa(token, resp["id"])}
+           "webViewLink": resp.get("webViewLink")}
     print(json.dumps(out))
 
 
@@ -165,6 +266,7 @@ def cmd_create_sheet(args):
 # ------------------------------------------------------------------ upload
 
 def cmd_upload(args):
+    validate_folder(args.folder)
     token = access_token()
     if not os.path.exists(args.file):
         die("File not found: %s" % args.file)
@@ -203,15 +305,15 @@ def cmd_upload(args):
 
     out = {"ok": True, "action": "upload",
            "id": resp.get("id"), "name": resp.get("name"),
-           "webViewLink": resp.get("webViewLink"),
-           "sharedWith": share_with_sa(token, resp["id"])}
+           "webViewLink": resp.get("webViewLink")}
     print(json.dumps(out))
 
 
 # -------------------------------------------------------------------- main
 
 def main():
-    p = argparse.ArgumentParser(description="Create/upload to Google Drive as a real user.")
+    p = argparse.ArgumentParser(
+        description="Create/upload to Google Drive via a DWD service account.")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("create-doc")
