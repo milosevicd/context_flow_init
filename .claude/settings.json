@@ -6,8 +6,7 @@
     "allow": [
       "Bash",
       "Skill(*)",
-      "mcp__google-drive__*",
-      "WebSearch"
+      "mcp__claude_ai_LandingPad_GDrive_*"
     ],
     "deny": [
       "Bash(rm -rf *)",
@@ -65,6 +64,10 @@
           {
             "type": "command",
             "command": "DIR=\"${CLAUDE_PROFILES_DIR:-$HOME/.claude/profiles}\"; FILE=\"$DIR/DEFAULT.md\"; if [ -f \"$FILE\" ]; then echo \"# About me\"; echo; cat \"$FILE\"; fi"
+          },
+          {
+            "type": "command",
+            "command": "[ -z \"$CLAUDE_CODE_REMOTE\" ] && cd \"$CLAUDE_PROJECT_DIR\" 2>/dev/null && git pull origin main"
           }
         ]
       }
