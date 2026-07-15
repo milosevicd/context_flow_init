@@ -6,7 +6,8 @@
     "allow": [
       "Bash",
       "Skill(*)",
-      "mcp__claude_ai_LandingPad_GDrive_*",
+      "mcp__claude_ai_LandingPad_GDrive_Create_MCP",
+      "mcp__claude_ai_LandingPad_GDrive_Edit_MCP",
       "Bash(git pull *)",
       "Bash(git push *)",
       "Bash(git add *)",
