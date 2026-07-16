@@ -12,7 +12,7 @@ invoking this skill — do not ask for confirmation again.
 **User-facing language: NO git terminology, ever.** The user is not a
 technical git user. In any text shown to the user — status updates,
 confirmations, error messages, conflict explanations — never say:
-*commit, push, pull, rebase, merge, branch, master, origin, remote,
+*commit, push, pull, rebase, merge, branch, origin, remote,
 upstream, fast-forward, SHA, HEAD, staged, unstaged, working tree,
 index, conflict markers, --force*. Use plain words instead: "save",
 "saved", "upload", "the cloud copy", "the saved version", "your
@@ -64,14 +64,14 @@ sentence — e.g. "Nothing new to save." Do not create an empty entry.
   snapshot; never bypass the hook.
 
 ## Step 4 — Sync with the cloud copy, then upload
-This repo always works on `master` with a remote `master` available.
+This repo always works on `main` with a remote `main` available.
 Do NOT check the branch, do NOT switch branches, do NOT check whether
-a remote exists. Assume `master` and `origin/master`.
+a remote exists. Assume `main` and `origin/main`.
 
 - Pull cloud changes and replay the new local snapshot on top, so the
   upload is always a clean fast-forward:
   ```
-  git pull --rebase origin master
+  git pull --rebase origin main
   ```
 - If the replay reports overlapping edits, attempt to auto-resolve:
   inspect each affected file, understand both sides, and produce a
@@ -89,7 +89,7 @@ a remote exists. Assume `master` and `origin/master`.
   one says X, the other says Y. Which should I keep?"
 - Then upload:
   ```
-  git push origin master
+  git push origin main
   ```
 - NEVER create a new branch.
 - NEVER create a merge entry (no plain `git merge`, no `git pull`
